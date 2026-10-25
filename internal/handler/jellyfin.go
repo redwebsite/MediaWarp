@@ -42,14 +42,14 @@ func NewJellyfinHandler(addr string, apiKey string) (*JellyfinHandler, error) {
 	if err != nil {
 		return nil, err
 	}
-	handler.proxy = httputil.NewSingleHostReverseProxy(target)
+	handler.proxy = newSingleHostRewriteProxy(target)
 
 	{ // 初始化路由规则
 		handler.routerRules = []RegexpRouteRule{
 			{
 				Regexp: constants.JellyfinRegexp.Router.ModifyPlaybackInfo,
 				Handler: responseModifyCreater(
-					&httputil.ReverseProxy{Director: handler.proxy.Director},
+					handler.proxy.Rewrite,
 					handler.ModifyPlaybackInfo,
 				),
 			},
@@ -65,7 +65,7 @@ func NewJellyfinHandler(addr string, apiKey string) (*JellyfinHandler, error) {
 					RegexpRouteRule{
 						Regexp: constants.JellyfinRegexp.Router.ModifyIndex,
 						Handler: responseModifyCreater(
-							&httputil.ReverseProxy{Director: handler.proxy.Director},
+							handler.proxy.Rewrite,
 							generateWebModifier(constants.JELLYFIN),
 						),
 					},

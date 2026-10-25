@@ -20,21 +20,35 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+// newSingleHostRewrite 创建单主机反向代理的 Rewrite 函数
+//
+// 替代已弃用的 Director 模式，自动处理 hop-by-hop headers 和 X-Forwarded 头
+func newSingleHostRewriteProxy(target *url.URL) *httputil.ReverseProxy {
+	return new(httputil.ReverseProxy{
+		Rewrite: func(req *httputil.ProxyRequest) {
+			req.SetURL(target)
+		},
+	})
+}
+
 // 响应修改创建器
 //
 // 将需要修改上游响应的处理器包装成一个 gin.HandlerFunc 处理器
-func responseModifyCreater(proxy *httputil.ReverseProxy, modifyResponseFN func(rw *http.Response) error) gin.HandlerFunc {
+func responseModifyCreater(rewrite func(*httputil.ProxyRequest), modifyResponseFN func(rw *http.Response) error) gin.HandlerFunc {
 	funcPtr := reflect.ValueOf(modifyResponseFN).Pointer()
 	funcName := strings.ReplaceAll(runtime.FuncForPC(funcPtr).Name(), "-fm", "")
 	logging.Debugf("创建响应修改处理器：%s", funcName)
 
-	proxy.ModifyResponse = func(rw *http.Response) error {
-		defer func() {
-			if r := recover(); r != nil {
-				logging.Errorf("%s 发生 panic：%s\n%s", funcName, r, string(debug.Stack()))
-			}
-		}()
-		return modifyResponseFN(rw)
+	proxy := httputil.ReverseProxy{
+		Rewrite: rewrite,
+		ModifyResponse: func(rw *http.Response) error {
+			defer func() {
+				if r := recover(); r != nil {
+					logging.Errorf("%s 发生 panic：%s\n%s", funcName, r, string(debug.Stack()))
+				}
+			}()
+			return modifyResponseFN(rw)
+		},
 	}
 
 	return func(ctx *gin.Context) {
